@@ -16,14 +16,18 @@ import time
 import sys
 import select
 import threading
+import os
 
 # List of available backends, models, and distance metrics
 backends = ["opencv", "ssd", "dlib", "mtcnn", "retinaface"]
 models = ["VGG-Face", "Facenet", "Facenet512", "OpenFace", "DeepFace", "DeepID", "ArcFace", "Dlib", "SFace"]
 metrics = ["cosine", "euclidean", "euclidean_l2"]
+similarity_threshold = 0.4
 
 # Path to the image for face recognition
 img = "faces/sani/sani_1.jpg"
+unknown_faces_dir = "faces/Unknown"
+os.makedirs(unknown_faces_dir, exist_ok=True)
 
 # text to speech
 speaker = Speaker()
@@ -31,6 +35,9 @@ speaker = Speaker()
 # Shared variable and lock
 stop_flag = False
 stop_lock = threading.Lock()
+
+# video url
+video_url = "http://0.168.29.170/video"
 
 def face_recognition(img):
     # Perform face recognition on the provided image
@@ -60,25 +67,34 @@ def live_face_recognition_start():
         
         if not ret:
             break
-
-        # Perform face recognition on the captured frame
-        # Find faces and identify people using a specific model and distance metric
-        people = DeepFace.find(img_path=frame, db_path="faces/", model_name=models[0], distance_metric=metrics[2], enforce_detection=False)
-
-        #print("================================================================")
-        #print(len(people))
-        #print("==========================================================------")
-        #print(people)
-        for person in people:
-            try:
+        
+        try:
+            # Perform face recognition on the captured frame
+            # Find faces and identify people using a specific model and distance metric
+            people = DeepFace.find(img_path=frame, db_path="faces/", model_name=models[0], distance_metric=metrics[2])
+            #print(people)
+            
+            # Filter the results based on similarity threashold
+            #filtered_results = [p for p in people if p['distance'][0] <= similarity_threshold]
+            #print("==========================================================++++++")
+            #print(filtered_results)
+    
+            #print("================================================================")
+            #print(len(people))
+            #print("==========================================================------")
+            #print(people)
+            for person in people:
                 #print(len(person))
                 if not len(person):
                     continue
                 
                 #print(person)
                 #print("Distance is: " + person['distance'])
-                if (person['distance'] > 0.89).bool():
+                if person['distance'][0] > similarity_threshold:
                     speaker.announce('Unknown')
+                    img_name = "Unknown_{}.jpg".format(int(time.time()))
+                    cv2.imwrite(os.path.join(unknown_faces_dir, img_name), frame)
+                    print("{} written!".format(img_name))
                     continue
                 
                 # Retrieve the coordinates of the face bounding box
@@ -86,19 +102,19 @@ def live_face_recognition_start():
                 # y = person['source_y'][0]
                 # w = person['source_w'][0]
                 # h = person['source_h'][0]
-
+    
                 # Draw a rectangle around the face
                 #cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-
+    
                 # Get the person's name and display it on the image
                 name = person['identity'][0].split('/')[1]
                 print("Response: " + name)
                 speaker.announce(name)
                 #time.sleep(3)
                 #cv2.putText(frame, name, (x, y), cv2.FONT_ITALIC, 1, (0, 0, 255), 2)
-            except RuntimeError as error:
-                print(error)
-                print("Exception occurred...")
+        except Exception as error:
+            print("Exception occurred...")
+            print(error)                
 
         # Display the resulting frame
         #cv2.namedWindow('frame', cv2.WINDOW_NORMAL)
