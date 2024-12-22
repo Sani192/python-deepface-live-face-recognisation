@@ -9,6 +9,7 @@ Created on Sat Apr 27 17:35:47 2024
 
 from deepface import DeepFace
 from speaker import Speaker
+from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import cv2
@@ -22,9 +23,11 @@ import os
 backends = ["opencv", "ssd", "dlib", "mtcnn", "retinaface"]
 models = ["VGG-Face", "Facenet", "Facenet512", "OpenFace", "DeepFace", "DeepID", "ArcFace", "Dlib", "SFace"]
 metrics = ["cosine", "euclidean", "euclidean_l2"]
-similarity_threshold = 0.4
+similarity_threshold = 1.0
 
 # Path to the image for face recognition
+FACES_DIR = Path("faces")
+EXCLUDE_DIR = "Unknown"
 img = "faces/sani/sani_1.jpg"
 unknown_faces_dir = "faces/Unknown"
 os.makedirs(unknown_faces_dir, exist_ok=True)
@@ -39,6 +42,14 @@ stop_lock = threading.Lock()
 # video url
 video_url = "http://0.168.29.170/video"
 
+def create_symlinks():
+    image_paths = [
+        str(img) for subdir in FACES_DIR.iterdir()
+        if subdir.is_dir() and subdir.name != EXCLUDE_DIR
+        for img in subdir.glob("*") if img.is_file()
+        ]
+    return image_paths    
+
 def face_recognition(img):
     # Perform face recognition on the provided image
     # Find faces and identify people using a specific model and distance metric
@@ -52,6 +63,8 @@ def face_recognition(img):
         print(person['identity'][0].split('/')[1])
 
 def live_face_recognition_start():
+    #dir_to_search = create_symlinks()
+    
     # Define a video capture object
     vid = cv2.VideoCapture(0)
     
@@ -69,49 +82,47 @@ def live_face_recognition_start():
             break
         
         try:
-            # Perform face recognition on the captured frame
-            # Find faces and identify people using a specific model and distance metric
-            people = DeepFace.find(img_path=frame, db_path="faces/", model_name=models[0], distance_metric=metrics[2])
-            #print(people)
+            # Extract faces
+            extracted_faces = DeepFace.extract_faces(img_path = frame, detector_backend = backends[0], enforce_detection = False)
+            print("===================Extracted faces")
+            print(len(extracted_faces))
+            print(extracted_faces)
             
-            # Filter the results based on similarity threashold
-            #filtered_results = [p for p in people if p['distance'][0] <= similarity_threshold]
-            #print("==========================================================++++++")
-            #print(filtered_results)
-    
-            #print("================================================================")
-            #print(len(people))
-            #print("==========================================================------")
-            #print(people)
-            for person in people:
-                #print(len(person))
-                if not len(person):
-                    continue
+            for face in extracted_faces:
+                face_image = face["face"]
+                print("===================face_image")
+                print(face_image)
                 
-                #print(person)
-                #print("Distance is: " + person['distance'])
-                if person['distance'][0] > similarity_threshold:
+                # Find faces and identify people using a specific model and distance metric
+                people = DeepFace.find(img_path=face_image, db_path="faces/", model_name=models[0], distance_metric=metrics[2], enforce_detection=False)
+                print("===================people")
+                print(len(people))
+                print(people)
+                
+                # If no match found
+                if len(people) == 0 or people[0]['distance'].min() > similarity_threshold or people[0]['identity'][0].split('/')[1] == EXCLUDE_DIR:
+                    print("=====Distance")
+                    #print(people[0]['distance'])
+                    print(people[0]['distance'].min())
+                    
+                    # Convert face_img to 8-bit format
+                    face_img_8bit = cv2.normalize(face_image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+                    
+                    # Convert face_img to BGR
+                    face_bgr = cv2.cvtColor(face_img_8bit, cv2.COLOR_RGB2BGR)
+                    
                     speaker.announce('Unknown')
                     img_name = "Unknown_{}.jpg".format(int(time.time()))
-                    cv2.imwrite(os.path.join(unknown_faces_dir, img_name), frame)
+                    cv2.imwrite(os.path.join(unknown_faces_dir, img_name), face_bgr)
                     print("{} written!".format(img_name))
                     continue
                 
-                # Retrieve the coordinates of the face bounding box
-                # x = person['source_x'][0]
-                # y = person['source_y'][0]
-                # w = person['source_w'][0]
-                # h = person['source_h'][0]
-    
-                # Draw a rectangle around the face
-                #cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-    
                 # Get the person's name and display it on the image
-                name = person['identity'][0].split('/')[1]
+                print("=========Going to speak name")
+                name = people[0]['identity'][0].split('/')[1]
                 print("Response: " + name)
                 speaker.announce(name)
-                #time.sleep(3)
-                #cv2.putText(frame, name, (x, y), cv2.FONT_ITALIC, 1, (0, 0, 255), 2)
+                        
         except Exception as error:
             print("Exception occurred...")
             print(error)                
